@@ -1,0 +1,134 @@
+`timescale 1ns / 1ps
+
+module spi_top_tb;
+
+    // Independent clocks
+    reg         master_clk;
+    reg         slave_clk;
+    
+    reg         reset;
+    reg         start;
+    reg  [7:0]  master_data_in;
+    reg  [7:0]  slave_data_in;
+    reg         cpol;
+    reg         cpha;
+    reg  [7:0]  clk_div;
+
+    wire [7:0]  master_data_out;
+    wire        master_done;
+    wire        sclk;
+    wire        mosi;
+    wire        ss;
+
+    wire [7:0]  slave_data_out;
+    wire        slave_done;
+    wire        miso;
+
+    integer pass_count;
+    integer fail_count;
+
+    // 1. Instantiating Master with master_clk
+    spi_master u_master (
+        .clk      (master_clk),
+        .reset    (reset),
+        .start    (start),
+        .data_in  (master_data_in),
+        .miso     (miso),
+        .cpol     (cpol),
+        .cpha     (cpha),
+        .clk_div  (clk_div),
+        .data_out (master_data_out),
+        .done     (master_done),
+        .sclk     (sclk),
+        .mosi     (mosi),
+        .ss       (ss)
+    );
+
+    // 2. Instantiating Slave with slave_clk
+    spi_slave u_slave (
+        .clk      (slave_clk),
+        .reset    (reset),
+        .sclk     (sclk),
+        .ss       (ss),
+        .mosi     (mosi),
+        .cpol     (cpol),
+        .cpha     (cpha),
+        .data_in  (slave_data_in),
+        .data_out (slave_data_out),
+        .done     (slave_done),
+        .miso     (miso)
+    );
+
+    // 3. Generate two separate, asynchronous clocks
+    always #5 master_clk = ~master_clk; // 100 MHz clock
+    always #4 slave_clk  = ~slave_clk;  // 125 MHz clock (different frequency & phase)
+
+    task run_test;
+        input [0:0] t_cpol;
+        input [0:0] t_cpha;
+        input [7:0] t_master_tx;
+        input [7:0] t_slave_tx;
+        begin
+            cpol           = t_cpol;
+            cpha           = t_cpha;
+            master_data_in = t_master_tx;
+            slave_data_in  = t_slave_tx;
+
+            // Synchronize stimulus to master_clk
+            repeat(3) @(posedge master_clk);
+            start = 1'b1;
+            @(posedge master_clk);
+            start = 1'b0;
+
+            wait(master_done == 1'b1);
+            wait(ss == 1'b1);
+            repeat(3) @(posedge master_clk);
+
+            if ((master_data_out === t_slave_tx) && (slave_data_out === t_master_tx)) begin
+                pass_count = pass_count + 1;
+                $display("PASS | CPOL=%0d CPHA=%0d | Master TX=%h RX=%h | Slave TX=%h RX=%h",
+                         t_cpol, t_cpha, t_master_tx, master_data_out, t_slave_tx, slave_data_out);
+            end
+            else begin
+                fail_count = fail_count + 1;
+                $display("FAIL | CPOL=%0d CPHA=%0d | Master TX=%h RX=%h expected=%h | Slave TX=%h RX=%h expected=%h",
+                         t_cpol, t_cpha,
+                         t_master_tx, master_data_out, t_slave_tx,
+                         t_slave_tx, slave_data_out, t_master_tx);
+            end
+
+            $display("--------------------------------------------------");
+            repeat(6) @(posedge master_clk);
+        end
+    endtask
+
+    initial begin
+        master_clk     = 1'b0;
+        slave_clk      = 1'b0;
+        reset          = 1'b1;
+        start          = 1'b0;
+        master_data_in = 8'h00;
+        slave_data_in  = 8'h00;
+        cpol           = 1'b0;
+        cpha           = 1'b0;
+        clk_div        = 8'd4; // Generates SCLK based on master_clk
+        pass_count     = 0;
+        fail_count     = 0;
+
+        repeat(5) @(posedge master_clk);
+        reset = 1'b0;
+        repeat(5) @(posedge master_clk);
+
+        run_test(1'b0, 1'b0, 8'hFF, 8'h3C);
+        run_test(1'b0, 1'b1, 8'h5A, 8'hEF);
+        run_test(1'b1, 1'b0, 8'h11, 8'h69);
+        run_test(1'b1, 1'b1, 8'h12, 8'h33);
+
+        $display("TOTAL PASS = %0d", pass_count);
+        $display("TOTAL FAIL = %0d", fail_count);
+
+        #50;
+        $finish;
+    end
+
+endmodule
