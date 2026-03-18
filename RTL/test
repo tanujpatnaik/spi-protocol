@@ -61,7 +61,7 @@ module spi_top_tb;
 
     // 3. Generate two separate, asynchronous clocks
     always #5 master_clk = ~master_clk; // 100 MHz clock
-    always #4 slave_clk  = ~slave_clk;  // 125 MHz clock (different frequency & phase)
+    always #6 slave_clk  = ~slave_clk;  // 125 MHz clock (different frequency & phase)
 
     task run_test;
         input [0:0] t_cpol;
